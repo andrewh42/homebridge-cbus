@@ -3,12 +3,12 @@
 const test = require('tape').test;
 const timekeeper = require('timekeeper');
 
-const Motion = require('../lib/shutter-motion').Motion;
+const { MotionModel } = require('../lib/motion');
 
 test('upFully', function (assert) {
 	assert.plan(4);
 
-	const shutter = new Motion(30000);
+	const shutter = new MotionModel(30000);
 
 	assert.equal(shutter.getCurrentPosition(), 0);
 	shutter.setCurrentState('INCREASING');
@@ -26,7 +26,7 @@ test('upFully', function (assert) {
 test('upPartial', function (assert) {
 	assert.plan(4);
 
-	const shutter = new Motion('30 sec');
+	const shutter = new MotionModel(30000);
 
 	assert.equal(shutter.getCurrentPosition(), 0);
 	shutter.setCurrentState('INCREASING');
@@ -34,6 +34,66 @@ test('upPartial', function (assert) {
 
 	timekeeper.travel(new Date(Date.now() + 15000));
 	assert.equal(shutter.getCurrentState(), 'INCREASING');
+	assert.equal(shutter.getCurrentPosition(), 50);
+
+	timekeeper.reset();
+
+	assert.end();
+});
+
+test('upStop', function (assert) {
+	assert.plan(4);
+
+	const shutter = new MotionModel(30000);
+
+	assert.equal(shutter.getCurrentPosition(), 0);
+	shutter.setCurrentState('INCREASING');
+	assert.equal(shutter.getCurrentState(), 'INCREASING');
+
+	timekeeper.travel(new Date(Date.now() + 15000));
+	shutter.setCurrentState('STOPPED');
+
+	assert.equal(shutter.getCurrentState(), 'STOPPED');
+	assert.equal(shutter.getCurrentPosition(), 50);
+
+	timekeeper.reset();
+
+	assert.end();
+});
+
+test('downFully', function (assert) {
+	assert.plan(4);
+
+	const shutter = new MotionModel(30000);
+
+	shutter.setCurrentPosition(100);
+	assert.equal(shutter.getCurrentPosition(), 100);
+	shutter.setCurrentState('DECREASING');
+	assert.equal(shutter.getCurrentState(), 'DECREASING');
+
+	timekeeper.travel(new Date(Date.now() + 30000));
+	assert.equal(shutter.getCurrentState(), 'STOPPED');
+	assert.equal(shutter.getCurrentPosition(), 0);
+
+	timekeeper.reset();
+
+	assert.end();
+});
+
+test('downStop', function (assert) {
+	assert.plan(4);
+
+	const shutter = new MotionModel(30000);
+
+	shutter.setCurrentPosition(100);
+	assert.equal(shutter.getCurrentPosition(), 100);
+	shutter.setCurrentState('DECREASING');
+	assert.equal(shutter.getCurrentState(), 'DECREASING');
+
+	timekeeper.travel(new Date(Date.now() + 15000));
+	shutter.setCurrentState('STOPPED');
+	
+	assert.equal(shutter.getCurrentState(), 'STOPPED');
 	assert.equal(shutter.getCurrentPosition(), 50);
 
 	timekeeper.reset();

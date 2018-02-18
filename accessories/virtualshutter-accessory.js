@@ -12,7 +12,7 @@ const ms = require('ms');
 
 const cbusUtils = require('../lib/cbus-utils');
 const CBusNetId = require('../lib/cbus-netid.js');
-const MotionSimulator = require('../lib/shutter-motion').Motion;
+const { MotionModel, MotionControl } = require('../lib/motion');
 
 const FILE_ID = cbusUtils.extractIdentifierFromFileName(__filename);
 
@@ -51,10 +51,20 @@ function CBusVirtualShutterAccessory(platform, accessoryData) {
 	//--------------------------------------------------
 	// state variables
 
-	this.simulatedShutter = new MotionSimulator(this.ms(travelTime) || DEFAULT_TRAVEL_TIME);
+	this.isUpOn = false;
+	this.isDownOn = false;
+
+	const model = new MotionModel(this.ms(travelTime) || DEFAULT_TRAVEL_TIME);
+	this.shutterModel = model;
+	this.shutterControl = new MotionControl({
+		model,
+		increaseCommand: this.increasePositionCommand.bind(this),
+		decreaseCommand: this.decreasePositionCommand.bind(this),
+		stopCommand: this.stopCommand.bind(this),
+	});
 
 	//
-	// TODO - listen for starts and stops on simulatedShutter and forward to c-bus
+	// TODO - listen for starts and stops on shutterModel and forward to c-bus
 	//
 
 	//--------------------------------------------------
@@ -84,14 +94,14 @@ CBusAccessory.prototype.getNetIds = function () {
 	return [this.downRelayNetId, this.upRelayNetId];
 };
 
-CBusShutterAccessory.prototype.getCurrentPosition = function (callback) {
-	const currentPosition = Math.round(this.simulatedShutter.getCurrentPosition());
+CBusVirtualShutterAccessory.prototype.getCurrentPosition = function (callback) {
+	const currentPosition = Math.round(this.shutterModel.getCurrentPosition());
 	this._log(FILE_ID, `getCurrentPosition`, currentPosition);
 	callback(false, /* value */ currentPosition);
 };
 
 function stringToPositionStateCharacteristic(state) {
-	switch (this.simulatedShutter.getCurrentPosition()) {
+	switch (this.shutterModel.getCurrentState()) {
 		case 'INCREASING':
 			return Characteristic.PositionState.INCREASING;
 		case 'DECREASING':
@@ -102,34 +112,35 @@ function stringToPositionStateCharacteristic(state) {
 	}
 }
 
-CBusShutterAccessory.prototype.getPositionState = function (callback) {
-	const positionState = stringToPositionStateCharacteristic(this.simulatedShutter.getCurrentPosition());
-	this._log(FILE_ID, `getPositionState`, positionState);
+CBusVirtualShutterAccessory.prototype.getPositionState = function (callback) {
+	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentPosition());
+	this._log(FILE_ID, 'getPositionState', positionState);
 	callback(false, positionState);
 };
 
-CBusShutterAccessory.prototype.getTargetPosition = function (callback) {
-	const targetPosition = this.simulatedShutter.getTargetPosition();
-	this._log(FILE_ID, `getTargetPosition`, targetPosition);
+CBusVirtualShutterAccessory.prototype.getTargetPosition = function (callback) {
+	const targetPosition = this.shutterModel.getTargetPosition();
+	this._log(FILE_ID, 'getTargetPosition', targetPosition);
 	callback(false, targetPosition);
 };
 
-CBusShutterAccessory.prototype.setTargetPosition = function (newPosition, callback, context) {
+CBusVirtualShutterAccessory.prototype.setTargetPosition = function (newPosition, callback, context) {
 	// context helps us avoid a never-ending loop
-	if (context === `event`) {
+	if (context === 'event') {
 		// this._log(FILE_ID, 'suppressing remote setTargetPosition');
 		callback();
 		return;
 	}
 
-	this._log(FILE_ID, `setTargetPosition`, `${newPosition} (was ${this.simulatedShutter.getTargetPosition()})`);
+	this._log(FILE_ID, 'setTargetPosition', `${newPosition} (was ${this.shutterControl.getTargetPosition()})`);
 
-	this.simulatedShutter.setTargetPosition(newPosition);
+	this.shutterControl.setTargetPosition(newPosition);
 
+	// provide position updates (XXX is this required?)
 	const interval = setInterval(() => {
-		const positionState = stringToPositionStateCharacteristic(this.simulatedShutter.getCurrentPosition());
+		const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentPosition());
 		this.service.setCharacteristic(Characteristic.PositionState, positionState);
-		this.service.setCharacteristic(Characteristic.CurrentPosition, this.simulatedShutter.getTargetPosition());
+		this.service.setCharacteristic(Characteristic.CurrentPosition, this.shutterModel.getTargetPosition());
 
 		if (positionState == Characteristic.PositionState.STOPPED) {
 			// finished
@@ -138,7 +149,38 @@ CBusShutterAccessory.prototype.setTargetPosition = function (newPosition, callba
 	}, MOTION_UPDATE_INTERVAL);
 };
 
-// CBusShutterAccessory.prototype.processClientData = function (err, message) {
+CBusVirtualShutterAccessory.prototype.increasePositionCommand = function () {
+	if (this.isUpOn) return;
+	this.isUpOn = true;
+
+	if (this.isDownOn) {
+		this.client.turnOff(this.downRelayNetId, () => {});
+	}
+	this.client.turnOn(this.upRelayNetId, () => {});
+};
+
+CBusVirtualShutterAccessory.prototype.decreasePositionCommand = function () {
+	if (this.isDownOn) return;
+	this.isDownOn = true;
+
+	if (this.isUpOn) {
+		this.client.turnOff(this.upRelayNetId, () => {});
+	}
+	this.client.turnOn(this.downRelayNetId, () => {});
+};
+
+CBusVirtualShutterAccessory.prototype.stopCommand = function () {
+	if (this.isUpOn) {
+		this.client.turnOff(this.upRelayNetId, () => {});
+		this.isUpOn = false;
+	}
+	if (this.isDownOn) {
+		this.client.turnOff(this.downRelayNetId, () => {});
+		this.isDownOn = false;
+	}
+};
+
+// CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
 // 	if (!err) {
 // 		const level = message.level;
 // 		const translated = this.translateShutterToProportional(level);
