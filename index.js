@@ -32,6 +32,7 @@ module.exports = function (homebridge) {
 	const CBusMotionAccessory = require('./accessories/motion-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
 	const CBusSecurityAccessory = require('./accessories/security-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
 	const CBusShutterAccessory = require('./accessories/shutter-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
+	const CBusVirtualShutterAccessory = require('./accessories/virtualshutter-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
 	const CBusFanAccessory = require('./accessories/fan-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
 	const CBusSwitchAccessory = require('./accessories/switch-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
 	const CBusTriggerAccessory = require('./accessories/trigger-accessory.js')(Service, Characteristic, CBusAccessory, uuid);
@@ -43,6 +44,7 @@ module.exports = function (homebridge) {
 	cbusUtils.fixInheritance(CBusMotionAccessory, CBusAccessory);
 	cbusUtils.fixInheritance(CBusSecurityAccessory, CBusAccessory);
 	cbusUtils.fixInheritance(CBusShutterAccessory, CBusAccessory);
+	cbusUtils.fixInheritance(CBusVirtualShutterAccessory, CBusAccessory);
 	cbusUtils.fixInheritance(CBusFanAccessory, CBusAccessory);
 	cbusUtils.fixInheritance(CBusSwitchAccessory, CBusAccessory);
 	cbusUtils.fixInheritance(CBusTriggerAccessory, CBusAccessory);
@@ -57,6 +59,7 @@ module.exports = function (homebridge) {
 		motion: CBusMotionAccessory,
 		security: CBusSecurityAccessory,
 		shutter: CBusShutterAccessory,
+		virtualshutter: CBusVirtualShutterAccessory,
 		fan: CBusFanAccessory,
 		switch: CBusSwitchAccessory,
 		trigger: CBusTriggerAccessory
@@ -171,7 +174,9 @@ CBusPlatform.prototype.accessories = function (callback) {
 		// build the lookup map
 		this.registeredAccessories = {};
 		for (const accessory of accessories) {
-			this.registeredAccessories[accessory.netId.toString()] = accessory;
+			for (const netId of accessory.getNetIds()) {
+				this.registeredAccessories[netId.toString()] = accessory;
+			}
 		}
 
 		// hand them back to the callback to fire them up

@@ -78,6 +78,10 @@ function CBusAccessory(platform, accessoryData) {
 	service.setCharacteristic(Characteristic.Model, this.type);
 }
 
+CBusAccessory.prototype.getNetIds = function () {
+	return [this.netId];
+};
+
 CBusAccessory.prototype.getServices = function () {
 	return this.services;
 };
