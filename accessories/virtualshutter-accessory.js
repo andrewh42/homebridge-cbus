@@ -25,34 +25,34 @@ module.exports = function (_service, _characteristic, _accessory, _uuid) {
 	return CBusVirtualShutterAccessory;
 };
 
-// { upId: <number>, travelTime: <number> }
+// { id: <close relay group address>, openId: <open relay group address>, travelTime: <travel time string> }
 function CBusVirtualShutterAccessory(platform, accessoryData) {
 	//--------------------------------------------------
 	// initialize the parent
 	CBusAccessory.call(this, platform, accessoryData);
 
-	this.downRelayNetId = this.netId;
+	this.closeRelayNetId = this.netId;
 	{
-		let upGroupAddress;
+		let openGroupAddress;
 		try {
-			upGroupAddress = cbusUtils.integerise(accessoryData.upId);
+			openGroupAddress = cbusUtils.integerise(accessoryData.openId);
 		} catch (err) {
 			throw new Error(`upId '${accessoryData.upId}' for accessory '${this.name} is not an integer`);
 		}
 
-		this.upRelayNetId = new CBusNetId(
+		this.openRelayNetId = new CBusNetId(
 			platform.project,
 			accessoryData.network || platform.client.network,
 			accessoryData.application || platform.client.application,
-			upGroupAddress
+			openGroupAddress
 		);
 	}
 
 	//--------------------------------------------------
 	// state variables
 
-	this.isUpOn = false;
-	this.isDownOn = false;
+	this.isOpenRelayOn = false;
+	this.isCloseRelayOn = false;
 
 	const model = new MotionModel(this.ms(travelTime) || DEFAULT_TRAVEL_TIME);
 	this.shutterModel = model;
@@ -91,7 +91,7 @@ function CBusVirtualShutterAccessory(platform, accessoryData) {
 
 // Override the default single-netId implementation in Accessory
 CBusAccessory.prototype.getNetIds = function () {
-	return [this.downRelayNetId, this.upRelayNetId];
+	return [this.closeRelayNetId, this.openRelayNetId];
 };
 
 CBusVirtualShutterAccessory.prototype.getCurrentPosition = function (callback) {
@@ -135,80 +135,79 @@ CBusVirtualShutterAccessory.prototype.setTargetPosition = function (newPosition,
 	this._log(FILE_ID, 'setTargetPosition', `${newPosition} (was ${this.shutterControl.getTargetPosition()})`);
 
 	this.shutterControl.setTargetPosition(newPosition);
-
-	// provide position updates (XXX is this required?)
-	const interval = setInterval(() => {
-		const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentPosition());
-		this.service.setCharacteristic(Characteristic.PositionState, positionState);
-		this.service.setCharacteristic(Characteristic.CurrentPosition, this.shutterModel.getTargetPosition());
-
-		if (positionState == Characteristic.PositionState.STOPPED) {
-			// finished
-			clearInterval(interval);
-		}
-	}, MOTION_UPDATE_INTERVAL);
 };
 
 CBusVirtualShutterAccessory.prototype.increasePositionCommand = function () {
-	if (this.isUpOn) return;
-	this.isUpOn = true;
+	if (this.isOpenRelayOn) return;
+	this.isOpenRelayOn = true;
 
-	if (this.isDownOn) {
-		this.client.turnOff(this.downRelayNetId, () => {});
+	if (this.isCloseRelayOn) {
+		this.client.turnOff(this.closeRelayNetId, () => {});
 	}
-	this.client.turnOn(this.upRelayNetId, () => {});
+	this.client.turnOn(this.openRelayNetId, () => {});
 };
 
 CBusVirtualShutterAccessory.prototype.decreasePositionCommand = function () {
-	if (this.isDownOn) return;
-	this.isDownOn = true;
+	if (this.isCloseRelayOn) return;
+	this.isCloseRelayOn = true;
 
-	if (this.isUpOn) {
-		this.client.turnOff(this.upRelayNetId, () => {});
+	if (this.isOpenRelayOn) {
+		this.client.turnOff(this.openRelayNetId, () => {});
 	}
-	this.client.turnOn(this.downRelayNetId, () => {});
+	this.client.turnOn(this.closeRelayNetId, () => {});
 };
 
 CBusVirtualShutterAccessory.prototype.stopCommand = function () {
-	if (this.isUpOn) {
-		this.client.turnOff(this.upRelayNetId, () => {});
-		this.isUpOn = false;
+	if (this.isOpenRelayOn) {
+		this.client.turnOff(this.openRelayNetId, () => {});
+		this.isOpenRelayOn = false;
 	}
-	if (this.isDownOn) {
-		this.client.turnOff(this.downRelayNetId, () => {});
-		this.isDownOn = false;
+	if (this.isCloseRelayOn) {
+		this.client.turnOff(this.closeRelayNetId, () => {});
+		this.isCloseRelayOn = false;
 	}
 };
 
-// CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
-// 	if (!err) {
-// 		const level = message.level;
-// 		const translated = this.translateShutterToProportional(level);
+CBusVirtualShutterAccessory.prototype.updateStateCharacteristics = function () {
+	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentState());
+	this.service.setCharacteristic(Characteristic.PositionState, positionState);
+	this.service.setCharacteristic(Characteristic.CurrentPosition, this.shutterModel.getCurrentPosition());
+};
 
-// 		if (typeof translated === `undefined`) {
-// 			this._log(FILE_ID, `processClientData`, `indeterminate`);
+CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
+	if (err) return;
 
-// 			// could be a bit smarter here
-// 			this.cachedTargetPosition = 0;
-// 		} else {
-// 			this._log(FILE_ID, `processClientData`, `received ${translated}%`);
+	console.assert(typeof message.level !== `undefined`, `message.level must be defined`);
+	const isOn = message.level > 0;
 
-// 			if (this.cachedTargetPosition !== translated) {
-// 				this.service.getCharacteristic(Characteristic.TargetPosition).setValue(translated, undefined, `event`);
+	let newState;
+	switch (message.netId) {
+		case this.closeRelayNetId:
+			newState = isOn ? 'DECREASING' : 'STOPPED'
+			this.isCloseRelayOn = isOn;
+			break;
+		case this.openRelayNetId:
+			newState = isOn ? 'INCREASING' : 'STOPPED';
+			this.isOpenRelayOn = isOn;
+			break;
+		default:
+			this._log(FILE_ID, 'processClientData', `misdirected message for netId ${message.netId}`);
+			return;
+	}
 
-// 				//  move over 2 seconds
-// 				setTimeout(() => {
-// 					this.cachedTargetPosition = translated;
+	const oldState = this.shutterModel.getCurrentState();
+	this.shutterModel.setCurrentState(newState);
 
-// 					// in many cases the shutter will still be travelling for a while, but unless/until we
-// 					// simulate the shutter relay, we won't know when it has stopped.
-// 					// so just assume it gets there immediately.
-// 					this.service.getCharacteristic(Characteristic.CurrentPosition)
-// 						.setValue(this.cachedTargetPosition, undefined, `event`);
-// 					this.service.getCharacteristic(Characteristic.PositionState)
-// 						.setValue(Characteristic.PositionState.STOPPED, undefined, `event`);
-// 				}, SPIN_TIME);
-// 			}
-// 		}
-// 	}
-// };
+	if (oldState != newState) {
+		if (oldState == 'STOPPED') {
+			assert(this.updateStateCharacteristicsInterval === undefined);
+			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateStateCharacteristics() }, MOTION_UPDATE_INTERVAL);
+		} else if (newState == 'STOPPED') {
+			cancelInterval(this.updateStateCharacteristicsInterval);
+			this.updateStateCharacteristicsInterval = undefined;
+			this.updateStateCharacteristics();
+		}
+	}
+
+	// TODO: resolve simultaneous isCloseRelayOn and isOpenRelayOn
+};
