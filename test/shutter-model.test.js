@@ -92,7 +92,7 @@ test('downStop', function (assert) {
 
 	timekeeper.travel(new Date(Date.now() + 15000));
 	shutter.setCurrentState('STOPPED');
-	
+
 	assert.equal(shutter.getCurrentState(), 'STOPPED');
 	assert.equal(shutter.getCurrentPosition(), 50);
 

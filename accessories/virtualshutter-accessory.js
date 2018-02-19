@@ -63,10 +63,6 @@ function CBusVirtualShutterAccessory(platform, accessoryData) {
 		stopCommand: this.stopCommand.bind(this),
 	});
 
-	//
-	// TODO - listen for starts and stops on shutterModel and forward to c-bus
-	//
-
 	//--------------------------------------------------
 	// register the Window Covering service
 	this.service = this.addService(new Service.WindowCovering(this.name));
