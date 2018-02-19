@@ -15,6 +15,7 @@ const CBusNetId = require('../lib/cbus-netid.js');
 const { MotionModel, MotionControl } = require('../lib/motion');
 
 const FILE_ID = cbusUtils.extractIdentifierFromFileName(__filename);
+const log = require('debug')('cbus:platform');	// XXX change to cbus:virtualshutter
 
 module.exports = function (_service, _characteristic, _accessory, _uuid) {
 	Service = _service;
@@ -54,7 +55,8 @@ function CBusVirtualShutterAccessory(platform, accessoryData) {
 	this.isOpenRelayOn = false;
 	this.isCloseRelayOn = false;
 
-	const model = new MotionModel(this.ms(travelTime) || DEFAULT_TRAVEL_TIME);
+	const travelTime = accessoryData.travelTime ? ms(accessoryData.travelTime) : DEFAULT_TRAVEL_TIME;
+	const model = new MotionModel(travelTime);
 	this.shutterModel = model;
 	this.shutterControl = new MotionControl({
 		model,
@@ -86,7 +88,7 @@ function CBusVirtualShutterAccessory(platform, accessoryData) {
 }
 
 // Override the default single-netId implementation in Accessory
-CBusAccessory.prototype.getNetIds = function () {
+CBusVirtualShutterAccessory.prototype.getNetIds = function () {
 	return [this.closeRelayNetId, this.openRelayNetId];
 };
 
@@ -115,7 +117,7 @@ CBusVirtualShutterAccessory.prototype.getPositionState = function (callback) {
 };
 
 CBusVirtualShutterAccessory.prototype.getTargetPosition = function (callback) {
-	const targetPosition = this.shutterModel.getTargetPosition();
+	const targetPosition = this.shutterControl.getTargetPosition();
 	this._log(FILE_ID, 'getTargetPosition', targetPosition);
 	callback(false, targetPosition);
 };
@@ -131,6 +133,8 @@ CBusVirtualShutterAccessory.prototype.setTargetPosition = function (newPosition,
 	this._log(FILE_ID, 'setTargetPosition', `${newPosition} (was ${this.shutterControl.getTargetPosition()})`);
 
 	this.shutterControl.setTargetPosition(newPosition);
+
+	callback();
 };
 
 CBusVirtualShutterAccessory.prototype.increasePositionCommand = function () {
@@ -166,8 +170,10 @@ CBusVirtualShutterAccessory.prototype.stopCommand = function () {
 
 CBusVirtualShutterAccessory.prototype.updateStateCharacteristics = function () {
 	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentState());
+	const currentPosition = Math.round(this.shutterModel.getCurrentPosition());
+	this._log(FILE_ID, 'updateStateCharacteristics', `updateState: ${positionState} ${currentPosition}%`);
 	this.service.setCharacteristic(Characteristic.PositionState, positionState);
-	this.service.setCharacteristic(Characteristic.CurrentPosition, this.shutterModel.getCurrentPosition());
+	this.service.setCharacteristic(Characteristic.CurrentPosition, currentPosition);
 };
 
 CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
@@ -177,28 +183,30 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 	const isOn = message.level > 0;
 
 	let newState;
-	switch (message.netId) {
-		case this.closeRelayNetId:
-			newState = isOn ? 'DECREASING' : 'STOPPED'
-			this.isCloseRelayOn = isOn;
-			break;
-		case this.openRelayNetId:
-			newState = isOn ? 'INCREASING' : 'STOPPED';
-			this.isOpenRelayOn = isOn;
-			break;
-		default:
-			this._log(FILE_ID, 'processClientData', `misdirected message for netId ${message.netId}`);
-			return;
+	if (message.netId.isEquals(this.openRelayNetId)) {
+		newState = isOn ? 'INCREASING' : 'STOPPED';
+		this.isOpenRelayOn = isOn;
+	} else if (message.netId.isEquals(this.closeRelayNetId)) {
+		newState = isOn ? 'DECREASING' : 'STOPPED';
+		this.isCloseRelayOn = isOn;
+	} else {
+		this._log(FILE_ID, 'processClientData', `misdirected message for netId ${message.netId} (open = ${this.openRelayNetId}, close = ${this.closeRelayNetId})`);
+		return;
 	}
 
 	const oldState = this.shutterModel.getCurrentState();
 	this.shutterModel.setCurrentState(newState);
 
+	this._log(FILE_ID, 'processClientData', `state change: ${oldState} -> ${newState}`);
+
 	if (oldState != newState) {
 		if (oldState == 'STOPPED') {
+			this._log(FILE_ID, 'processClientData', 'starting state updates');
 			assert(this.updateStateCharacteristicsInterval === undefined);
-			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateStateCharacteristics() }, MOTION_UPDATE_INTERVAL);
+			this.updateStateCharacteristics();
+			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateStateCharacteristics(); }, MOTION_UPDATE_INTERVAL);
 		} else if (newState == 'STOPPED') {
+			this._log(FILE_ID, 'processClientData', 'stopping state updates');
 			cancelInterval(this.updateStateCharacteristicsInterval);
 			this.updateStateCharacteristicsInterval = undefined;
 			this.updateStateCharacteristics();
