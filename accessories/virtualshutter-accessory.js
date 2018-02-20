@@ -1,7 +1,7 @@
 'use strict';
 
 const DEFAULT_TRAVEL_TIME = 60000;	// (ms)
-const MOTION_UPDATE_INTERVAL = 500;	// (ms) how often to update HomeKit during shutter motion
+const MINIMUM_MOTION_UPDATE_INTERVAL = 250;	// (ms) the minimum HomeKit update interval during shutter motion
 
 let Service;
 let Characteristic;
@@ -15,7 +15,7 @@ const CBusNetId = require('../lib/cbus-netid.js');
 const { MotionModel, MotionControl } = require('../lib/motion');
 
 const FILE_ID = cbusUtils.extractIdentifierFromFileName(__filename);
-const log = require('debug')('cbus:platform');	// XXX change to cbus:virtualshutter
+const log = require('debug')('cbus:accessory');
 
 module.exports = function (_service, _characteristic, _accessory, _uuid) {
 	Service = _service;
@@ -99,7 +99,7 @@ CBusVirtualShutterAccessory.prototype.getCurrentPosition = function (callback) {
 };
 
 function stringToPositionStateCharacteristic(state) {
-	switch (this.shutterModel.getCurrentState()) {
+	switch (state) {
 		case 'INCREASING':
 			return Characteristic.PositionState.INCREASING;
 		case 'DECREASING':
@@ -137,24 +137,24 @@ CBusVirtualShutterAccessory.prototype.setTargetPosition = function (newPosition,
 	callback();
 };
 
-CBusVirtualShutterAccessory.prototype.increasePositionCommand = function () {
+CBusVirtualShutterAccessory.prototype.increasePositionCommand = function (callback) {
 	if (this.isOpenRelayOn) return;
 	this.isOpenRelayOn = true;
 
 	if (this.isCloseRelayOn) {
 		this.client.turnOff(this.closeRelayNetId, () => {});
 	}
-	this.client.turnOn(this.openRelayNetId, () => {});
+	this.client.turnOn(this.openRelayNetId, callback);
 };
 
-CBusVirtualShutterAccessory.prototype.decreasePositionCommand = function () {
+CBusVirtualShutterAccessory.prototype.decreasePositionCommand = function (callback) {
 	if (this.isCloseRelayOn) return;
 	this.isCloseRelayOn = true;
 
 	if (this.isOpenRelayOn) {
 		this.client.turnOff(this.openRelayNetId, () => {});
 	}
-	this.client.turnOn(this.closeRelayNetId, () => {});
+	this.client.turnOn(this.closeRelayNetId, callback);
 };
 
 CBusVirtualShutterAccessory.prototype.stopCommand = function () {
@@ -168,12 +168,17 @@ CBusVirtualShutterAccessory.prototype.stopCommand = function () {
 	}
 };
 
-CBusVirtualShutterAccessory.prototype.updateStateCharacteristics = function () {
-	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentState());
+CBusVirtualShutterAccessory.prototype.updateCurrentPositionCharacteristic = function () {
 	const currentPosition = Math.round(this.shutterModel.getCurrentPosition());
-	this._log(FILE_ID, 'updateStateCharacteristics', `updateState: ${positionState} ${currentPosition}%`);
-	this.service.setCharacteristic(Characteristic.PositionState, positionState);
+	log(`${FILE_ID} updateCurrentPositionCharacteristic ${currentPosition}%`);
 	this.service.setCharacteristic(Characteristic.CurrentPosition, currentPosition);
+};
+
+CBusVirtualShutterAccessory.prototype.updatePositionStateCharacteristic = function () {
+	const currentState = this.shutterModel.getCurrentState();
+	const positionState = stringToPositionStateCharacteristic(currentState);
+	log(`${FILE_ID} updatePositionStateCharacteristic ${positionState} (${currentState})`);
+	this.service.setCharacteristic(Characteristic.PositionState, positionState);
 };
 
 CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
@@ -197,20 +202,25 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 	const oldState = this.shutterModel.getCurrentState();
 	this.shutterModel.setCurrentState(newState);
 
-	this._log(FILE_ID, 'processClientData', `state change: ${oldState} -> ${newState}`);
+	log(`${FILE_ID} processClientData state change: ${oldState} -> ${newState}`);
 
 	if (oldState != newState) {
 		if (oldState == 'STOPPED') {
-			this._log(FILE_ID, 'processClientData', 'starting state updates');
-			assert(this.updateStateCharacteristicsInterval === undefined);
-			this.updateStateCharacteristics();
-			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateStateCharacteristics(); }, MOTION_UPDATE_INTERVAL);
-		} else if (newState == 'STOPPED') {
-			this._log(FILE_ID, 'processClientData', 'stopping state updates');
-			cancelInterval(this.updateStateCharacteristicsInterval);
-			this.updateStateCharacteristicsInterval = undefined;
-			this.updateStateCharacteristics();
+			log(`${FILE_ID} processClientData starting state updates`);
+			this.updatePositionStateCharacteristic();
+
+			// regularly give HomeKit the updated current position - ideally percentage by percentage
+			const updateInterval = Math.max(MINIMUM_MOTION_UPDATE_INTERVAL, this.shutterModel.travelTime / 100);
+			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateCurrentPositionCharacteristic() }, updateInterval);
 		}
+	}
+	if (newState == 'STOPPED' && this.updateStateCharacteristicsInterval) {
+		this.updateCurrentPositionCharacteristic();
+		this.updatePositionStateCharacteristic();
+
+		log(`${FILE_ID} processClientData stopping state updates`);
+		clearInterval(this.updateStateCharacteristicsInterval);
+		this.updateStateCharacteristicsInterval = undefined;
 	}
 
 	// TODO: resolve simultaneous isCloseRelayOn and isOpenRelayOn
