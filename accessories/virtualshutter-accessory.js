@@ -94,7 +94,7 @@ CBusVirtualShutterAccessory.prototype.getNetIds = function () {
 
 CBusVirtualShutterAccessory.prototype.getCurrentPosition = function (callback) {
 	const currentPosition = Math.round(this.shutterModel.getCurrentPosition());
-	this._log(FILE_ID, `getCurrentPosition`, currentPosition);
+	this._log(FILE_ID, 'getCurrentPosition', currentPosition);
 	callback(false, /* value */ currentPosition);
 };
 
@@ -184,7 +184,7 @@ CBusVirtualShutterAccessory.prototype.updatePositionStateCharacteristic = functi
 CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
 	if (err) return;
 
-	console.assert(typeof message.level !== `undefined`, `message.level must be defined`);
+	console.assert(typeof message.level !== 'undefined', 'message.level must be defined');
 	const isOn = message.level > 0;
 
 	let newState;
@@ -195,7 +195,7 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 		newState = isOn ? 'DECREASING' : 'STOPPED';
 		this.isCloseRelayOn = isOn;
 	} else {
-		this._log(FILE_ID, 'processClientData', `misdirected message for netId ${message.netId} (open = ${this.openRelayNetId}, close = ${this.closeRelayNetId})`);
+		log(FILE_ID, 'processClientData', `misdirected message for netId ${message.netId} (open = ${this.openRelayNetId}, close = ${this.closeRelayNetId})`);
 		return;
 	}
 
