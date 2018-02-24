@@ -210,7 +210,7 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 			this.updatePositionStateCharacteristic();
 
 			// regularly give HomeKit the updated current position - ideally percentage by percentage
-			const updateInterval = Math.max(MINIMUM_MOTION_UPDATE_INTERVAL, this.shutterModel.travelTime / 100);
+			const updateInterval = Math.max(MINIMUM_MOTION_UPDATE_INTERVAL, 1 / this.shutterModel.speed);
 			this.updateStateCharacteristicsInterval = setInterval(() => { this.updateCurrentPositionCharacteristic() }, updateInterval);
 		}
 	}
