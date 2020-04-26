@@ -111,7 +111,7 @@ function stringToPositionStateCharacteristic(state) {
 }
 
 CBusVirtualShutterAccessory.prototype.getPositionState = function (callback) {
-	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentPosition());
+	const positionState = stringToPositionStateCharacteristic(this.shutterModel.getCurrentState());
 	this._log(FILE_ID, 'getPositionState', positionState);
 	callback(false, positionState);
 };
