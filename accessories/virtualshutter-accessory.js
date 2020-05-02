@@ -200,19 +200,19 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 	}
 
 	const oldState = this.shutterModel.getCurrentState();
-	this.shutterModel.setCurrentState(newState);
+	if (oldState == newState) return;
 
 	log(`${FILE_ID} processClientData state change: ${oldState} -> ${newState}`);
+	this.shutterModel.setCurrentState(newState);
 
-	if (oldState == 'STOPPED' && oldState != newState) {
+	if (oldState == 'STOPPED') {
 		log(`${FILE_ID} processClientData starting state updates`);
 		this.updatePositionStateCharacteristic();
 
 		// regularly give HomeKit the updated current position - ideally percentage by percentage
 		const updateInterval = Math.max(MINIMUM_MOTION_UPDATE_INTERVAL, 1 / this.shutterModel.speed);
 		this.updateStateCharacteristicsInterval = setInterval(() => { this.updateCurrentPositionCharacteristic() }, updateInterval);
-	}
-	if (newState == 'STOPPED' && this.updateStateCharacteristicsInterval) {
+	} else if (newState == 'STOPPED') {
 		this.updateCurrentPositionCharacteristic();
 		this.updatePositionStateCharacteristic();
 
