@@ -1,7 +1,7 @@
 'use strict';
 
 const DEFAULT_TRAVEL_TIME = 60000;	// (ms)
-const MINIMUM_MOTION_UPDATE_INTERVAL = 250;	// (ms) the minimum HomeKit update interval during shutter motion
+const MINIMUM_MOTION_UPDATE_INTERVAL = 500;	// (ms) the minimum HomeKit update interval during shutter motion
 
 let Service;
 let Characteristic;
