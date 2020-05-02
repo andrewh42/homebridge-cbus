@@ -181,6 +181,12 @@ CBusVirtualShutterAccessory.prototype.updatePositionStateCharacteristic = functi
 	this.service.setCharacteristic(Characteristic.PositionState, positionState);
 };
 
+CBusVirtualShutterAccessory.prototype.updateTargetPositionCharacteristic = function () {
+	const targetPosition = Math.round(this.shutterControl.getTargetPosition());
+	log(`${FILE_ID} updateTargetPositionCharacteristic ${targetPosition}%`);
+	this.service.setCharacteristic(Characteristic.TargetPosition, targetPosition);
+};
+
 CBusVirtualShutterAccessory.prototype.processClientData = function (err, message) {
 	if (err) return;
 
@@ -213,7 +219,10 @@ CBusVirtualShutterAccessory.prototype.processClientData = function (err, message
 		const updateInterval = Math.max(MINIMUM_MOTION_UPDATE_INTERVAL, 1 / this.shutterModel.speed);
 		this.updateStateCharacteristicsInterval = setInterval(() => { this.updateCurrentPositionCharacteristic() }, updateInterval);
 	} else if (newState == 'STOPPED') {
+		this.shutterControl.syncTargetPositionWithCurrentPosition(); // it's not a good look to have target and current positions not matching once stopped
+
 		this.updateCurrentPositionCharacteristic();
+		this.updateTargetPositionCharacteristic();
 		this.updatePositionStateCharacteristic();
 
 		log(`${FILE_ID} processClientData stopping state updates`);
